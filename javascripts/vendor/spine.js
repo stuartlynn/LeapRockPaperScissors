@@ -1,3 +1,79 @@
+(function(/*! Brunch !*/) {
+  'use strict';
+
+  var globals = typeof window !== 'undefined' ? window : global;
+  if (typeof globals.require === 'function') return;
+
+  var modules = {};
+  var cache = {};
+
+  var has = function(object, name) {
+    return ({}).hasOwnProperty.call(object, name);
+  };
+
+  var expand = function(root, name) {
+    var results = [], parts, part;
+    if (/^\.\.?(\/|$)/.test(name)) {
+      parts = [root, name].join('/').split('/');
+    } else {
+      parts = name.split('/');
+    }
+    for (var i = 0, length = parts.length; i < length; i++) {
+      part = parts[i];
+      if (part === '..') {
+        results.pop();
+      } else if (part !== '.' && part !== '') {
+        results.push(part);
+      }
+    }
+    return results.join('/');
+  };
+
+  var dirname = function(path) {
+    return path.split('/').slice(0, -1).join('/');
+  };
+
+  var localRequire = function(path) {
+    return function(name) {
+      var dir = dirname(path);
+      var absolute = expand(dir, name);
+      return globals.require(absolute);
+    };
+  };
+
+  var initModule = function(name, definition) {
+    var module = {id: name, exports: {}};
+    definition(module.exports, localRequire(name), module);
+    var exports = cache[name] = module.exports;
+    return exports;
+  };
+
+  var require = function(name) {
+    var path = expand(name, '.');
+
+    if (has(cache, path)) return cache[path];
+    if (has(modules, path)) return initModule(path, modules[path]);
+
+    var dirIndex = expand(path, './index');
+    if (has(cache, dirIndex)) return cache[dirIndex];
+    if (has(modules, dirIndex)) return initModule(dirIndex, modules[dirIndex]);
+
+    throw new Error('Cannot find module "' + name + '"');
+  };
+
+  var define = function(bundle) {
+    for (var key in bundle) {
+      if (has(bundle, key)) {
+        modules[key] = bundle[key];
+      }
+    }
+  }
+
+  globals.require = require;
+  globals.require.define = define;
+  globals.require.brunch = true;
+})();
+
 (function() {
   var $, Controller, Events, Log, Model, Module, Spine, isArray, isBlank, makeArray, moduleKeywords,
     __slice = Array.prototype.slice,
@@ -806,3 +882,706 @@
   Spine.Class = Module;
 
 }).call(this);
+;
+
+(function() {
+  var $, Ajax, Base, Collection, Extend, Include, Model, Singleton,
+    __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
+    __hasProp = Object.prototype.hasOwnProperty,
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor; child.__super__ = parent.prototype; return child; },
+    __slice = Array.prototype.slice;
+
+  if (typeof Spine === "undefined" || Spine === null) Spine = require('spine');
+
+  $ = Spine.$;
+
+  Model = Spine.Model;
+
+  Ajax = {
+    getURL: function(object) {
+      return object && (typeof object.url === "function" ? object.url() : void 0) || object.url;
+    },
+    enabled: true,
+    pending: false,
+    requests: [],
+    disable: function(callback) {
+      if (this.enabled) {
+        this.enabled = false;
+        callback();
+        return this.enabled = true;
+      } else {
+        return callback();
+      }
+    },
+    requestNext: function() {
+      var next;
+      next = this.requests.shift();
+      if (next) {
+        return this.request(next);
+      } else {
+        return this.pending = false;
+      }
+    },
+    request: function(callback) {
+      var _this = this;
+      return (callback()).complete(function() {
+        return _this.requestNext();
+      });
+    },
+    queue: function(callback) {
+      if (!this.enabled) return;
+      if (this.pending) {
+        this.requests.push(callback);
+      } else {
+        this.pending = true;
+        this.request(callback);
+      }
+      return callback;
+    }
+  };
+
+  Base = (function() {
+
+    function Base() {}
+
+    Base.prototype.defaults = {
+      contentType: 'application/json',
+      dataType: 'json',
+      processData: false,
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    };
+
+    Base.prototype.ajax = function(params, defaults) {
+      return $.ajax($.extend({}, this.defaults, defaults, params));
+    };
+
+    Base.prototype.queue = function(callback) {
+      return Ajax.queue(callback);
+    };
+
+    return Base;
+
+  })();
+
+  Collection = (function(_super) {
+
+    __extends(Collection, _super);
+
+    function Collection(model) {
+      this.model = model;
+      this.errorResponse = __bind(this.errorResponse, this);
+      this.recordsResponse = __bind(this.recordsResponse, this);
+    }
+
+    Collection.prototype.find = function(id, params) {
+      var record;
+      record = new this.model({
+        id: id
+      });
+      return this.ajax(params, {
+        type: 'GET',
+        url: Ajax.getURL(record)
+      }).success(this.recordsResponse).error(this.errorResponse);
+    };
+
+    Collection.prototype.all = function(params) {
+      return this.ajax(params, {
+        type: 'GET',
+        url: Ajax.getURL(this.model)
+      }).success(this.recordsResponse).error(this.errorResponse);
+    };
+
+    Collection.prototype.fetch = function(params, options) {
+      var id,
+        _this = this;
+      if (params == null) params = {};
+      if (options == null) options = {};
+      if (id = params.id) {
+        delete params.id;
+        return this.find(id, params).success(function(record) {
+          return _this.model.refresh(record, options);
+        });
+      } else {
+        return this.all(params).success(function(records) {
+          return _this.model.refresh(records, options);
+        });
+      }
+    };
+
+    Collection.prototype.recordsResponse = function(data, status, xhr) {
+      return this.model.trigger('ajaxSuccess', null, status, xhr);
+    };
+
+    Collection.prototype.errorResponse = function(xhr, statusText, error) {
+      return this.model.trigger('ajaxError', null, xhr, statusText, error);
+    };
+
+    return Collection;
+
+  })(Base);
+
+  Singleton = (function(_super) {
+
+    __extends(Singleton, _super);
+
+    function Singleton(record) {
+      this.record = record;
+      this.errorResponse = __bind(this.errorResponse, this);
+      this.recordResponse = __bind(this.recordResponse, this);
+      this.model = this.record.constructor;
+    }
+
+    Singleton.prototype.reload = function(params, options) {
+      var _this = this;
+      return this.queue(function() {
+        return _this.ajax(params, {
+          type: 'GET',
+          url: Ajax.getURL(_this.record)
+        }).success(_this.recordResponse(options)).error(_this.errorResponse(options));
+      });
+    };
+
+    Singleton.prototype.create = function(params, options) {
+      var _this = this;
+      return this.queue(function() {
+        return _this.ajax(params, {
+          type: 'POST',
+          data: JSON.stringify(_this.record),
+          url: Ajax.getURL(_this.model)
+        }).success(_this.recordResponse(options)).error(_this.errorResponse(options));
+      });
+    };
+
+    Singleton.prototype.update = function(params, options) {
+      var _this = this;
+      return this.queue(function() {
+        return _this.ajax(params, {
+          type: 'PUT',
+          data: JSON.stringify(_this.record),
+          url: Ajax.getURL(_this.record)
+        }).success(_this.recordResponse(options)).error(_this.errorResponse(options));
+      });
+    };
+
+    Singleton.prototype.destroy = function(params, options) {
+      var _this = this;
+      return this.queue(function() {
+        return _this.ajax(params, {
+          type: 'DELETE',
+          url: Ajax.getURL(_this.record)
+        }).success(_this.recordResponse(options)).error(_this.errorResponse(options));
+      });
+    };
+
+    Singleton.prototype.recordResponse = function(options) {
+      var _this = this;
+      if (options == null) options = {};
+      return function(data, status, xhr) {
+        var _ref;
+        if (Spine.isBlank(data)) {
+          data = false;
+        } else {
+          data = _this.model.fromJSON(data);
+        }
+        Ajax.disable(function() {
+          if (data) {
+            if (data.id && _this.record.id !== data.id) {
+              _this.record.changeID(data.id);
+            }
+            return _this.record.updateAttributes(data.attributes());
+          }
+        });
+        _this.record.trigger('ajaxSuccess', data, status, xhr);
+        return (_ref = options.success) != null ? _ref.apply(_this.record) : void 0;
+      };
+    };
+
+    Singleton.prototype.errorResponse = function(options) {
+      var _this = this;
+      if (options == null) options = {};
+      return function(xhr, statusText, error) {
+        var _ref;
+        _this.record.trigger('ajaxError', xhr, statusText, error);
+        return (_ref = options.error) != null ? _ref.apply(_this.record) : void 0;
+      };
+    };
+
+    return Singleton;
+
+  })(Base);
+
+  Model.host = '';
+
+  Include = {
+    ajax: function() {
+      return new Singleton(this);
+    },
+    url: function() {
+      var args, url;
+      args = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+      url = Ajax.getURL(this.constructor);
+      if (url.charAt(url.length - 1) !== '/') url += '/';
+      url += encodeURIComponent(this.id);
+      args.unshift(url);
+      return args.join('/');
+    }
+  };
+
+  Extend = {
+    ajax: function() {
+      return new Collection(this);
+    },
+    url: function() {
+      var args;
+      args = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+      args.unshift(this.className.toLowerCase() + 's');
+      args.unshift(Model.host);
+      return args.join('/');
+    }
+  };
+
+  Model.Ajax = {
+    extended: function() {
+      this.fetch(this.ajaxFetch);
+      this.change(this.ajaxChange);
+      this.extend(Extend);
+      return this.include(Include);
+    },
+    ajaxFetch: function() {
+      var _ref;
+      return (_ref = this.ajax()).fetch.apply(_ref, arguments);
+    },
+    ajaxChange: function(record, type, options) {
+      if (options == null) options = {};
+      if (options.ajax === false) return;
+      return record.ajax()[type](options.ajax, options);
+    }
+  };
+
+  Model.Ajax.Methods = {
+    extended: function() {
+      this.extend(Extend);
+      return this.include(Include);
+    }
+  };
+
+  Ajax.defaults = Base.prototype.defaults;
+
+  Spine.Ajax = Ajax;
+
+  if (typeof module !== "undefined" && module !== null) module.exports = Ajax;
+
+}).call(this);
+;
+
+(function() {
+
+  if (typeof Spine === "undefined" || Spine === null) Spine = require('spine');
+
+  Spine.Model.Local = {
+    extended: function() {
+      this.change(this.saveLocal);
+      return this.fetch(this.loadLocal);
+    },
+    saveLocal: function() {
+      var result;
+      result = JSON.stringify(this);
+      return localStorage[this.className] = result;
+    },
+    loadLocal: function() {
+      var result;
+      result = localStorage[this.className];
+      return this.refresh(result || [], {
+        clear: true
+      });
+    }
+  };
+
+  if (typeof module !== "undefined" && module !== null) {
+    module.exports = Spine.Model.Local;
+  }
+
+}).call(this);
+;
+
+(function() {
+  var $,
+    __hasProp = Object.prototype.hasOwnProperty,
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor; child.__super__ = parent.prototype; return child; },
+    __slice = Array.prototype.slice;
+
+  if (typeof Spine === "undefined" || Spine === null) Spine = require('spine');
+
+  $ = Spine.$;
+
+  Spine.Manager = (function(_super) {
+
+    __extends(Manager, _super);
+
+    Manager.include(Spine.Events);
+
+    function Manager() {
+      this.controllers = [];
+      this.bind('change', this.change);
+      this.add.apply(this, arguments);
+    }
+
+    Manager.prototype.add = function() {
+      var cont, controllers, _i, _len, _results;
+      controllers = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+      _results = [];
+      for (_i = 0, _len = controllers.length; _i < _len; _i++) {
+        cont = controllers[_i];
+        _results.push(this.addOne(cont));
+      }
+      return _results;
+    };
+
+    Manager.prototype.addOne = function(controller) {
+      var _this = this;
+      controller.bind('active', function() {
+        var args;
+        args = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+        return _this.trigger.apply(_this, ['change', controller].concat(__slice.call(args)));
+      });
+      controller.bind('release', function() {
+        return _this.controllers.splice(_this.controllers.indexOf(controller), 1);
+      });
+      return this.controllers.push(controller);
+    };
+
+    Manager.prototype.deactivate = function() {
+      return this.trigger.apply(this, ['change', false].concat(__slice.call(arguments)));
+    };
+
+    Manager.prototype.change = function() {
+      var args, cont, current, _i, _len, _ref, _results;
+      current = arguments[0], args = 2 <= arguments.length ? __slice.call(arguments, 1) : [];
+      _ref = this.controllers;
+      _results = [];
+      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+        cont = _ref[_i];
+        if (cont === current) {
+          _results.push(cont.activate.apply(cont, args));
+        } else {
+          _results.push(cont.deactivate.apply(cont, args));
+        }
+      }
+      return _results;
+    };
+
+    return Manager;
+
+  })(Spine.Module);
+
+  Spine.Controller.include({
+    active: function() {
+      var args;
+      args = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+      if (typeof args[0] === 'function') {
+        this.bind('active', args[0]);
+      } else {
+        args.unshift('active');
+        this.trigger.apply(this, args);
+      }
+      return this;
+    },
+    isActive: function() {
+      return this.el.hasClass('active');
+    },
+    activate: function() {
+      this.el.addClass('active');
+      return this;
+    },
+    deactivate: function() {
+      this.el.removeClass('active');
+      return this;
+    }
+  });
+
+  Spine.Stack = (function(_super) {
+
+    __extends(Stack, _super);
+
+    Stack.prototype.controllers = {};
+
+    Stack.prototype.routes = {};
+
+    Stack.prototype.className = 'spine stack';
+
+    function Stack() {
+      var key, value, _fn, _ref, _ref2,
+        _this = this;
+      Stack.__super__.constructor.apply(this, arguments);
+      this.manager = new Spine.Manager;
+      this.manager.bind('change', function() {
+        var args, controller;
+        controller = arguments[0], args = 2 <= arguments.length ? __slice.call(arguments, 1) : [];
+        if (controller) return _this.active.apply(_this, args);
+      });
+      _ref = this.controllers;
+      for (key in _ref) {
+        value = _ref[key];
+        this[key] = new value({
+          stack: this
+        });
+        this.add(this[key]);
+      }
+      _ref2 = this.routes;
+      _fn = function(key, value) {
+        var callback;
+        if (typeof value === 'function') callback = value;
+        callback || (callback = function() {
+          var _ref3;
+          return (_ref3 = _this[value]).active.apply(_ref3, arguments);
+        });
+        return _this.route(key, callback);
+      };
+      for (key in _ref2) {
+        value = _ref2[key];
+        _fn(key, value);
+      }
+      if (this["default"]) this[this["default"]].active();
+    }
+
+    Stack.prototype.add = function(controller) {
+      this.manager.add(controller);
+      return this.append(controller);
+    };
+
+    return Stack;
+
+  })(Spine.Controller);
+
+  if (typeof module !== "undefined" && module !== null) {
+    module.exports = Spine.Manager;
+  }
+
+}).call(this);
+;
+
+(function() {
+  var $, escapeRegExp, hashStrip, namedParam, splatParam,
+    __hasProp = Object.prototype.hasOwnProperty,
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor; child.__super__ = parent.prototype; return child; },
+    __slice = Array.prototype.slice;
+
+  if (typeof Spine === "undefined" || Spine === null) Spine = require('spine');
+
+  $ = Spine.$;
+
+  hashStrip = /^#*/;
+
+  namedParam = /:([\w\d]+)/g;
+
+  splatParam = /\*([\w\d]+)/g;
+
+  escapeRegExp = /[-[\]{}()+?.,\\^$|#\s]/g;
+
+  Spine.Route = (function(_super) {
+    var _ref;
+
+    __extends(Route, _super);
+
+    Route.extend(Spine.Events);
+
+    Route.historySupport = ((_ref = window.history) != null ? _ref.pushState : void 0) != null;
+
+    Route.routes = [];
+
+    Route.options = {
+      trigger: true,
+      history: false,
+      shim: false
+    };
+
+    Route.add = function(path, callback) {
+      var key, value, _results;
+      if (typeof path === 'object' && !(path instanceof RegExp)) {
+        _results = [];
+        for (key in path) {
+          value = path[key];
+          _results.push(this.add(key, value));
+        }
+        return _results;
+      } else {
+        return this.routes.push(new this(path, callback));
+      }
+    };
+
+    Route.setup = function(options) {
+      if (options == null) options = {};
+      this.options = $.extend({}, this.options, options);
+      if (this.options.history) {
+        this.history = this.historySupport && this.options.history;
+      }
+      if (this.options.shim) return;
+      if (this.history) {
+        $(window).bind('popstate', this.change);
+      } else {
+        $(window).bind('hashchange', this.change);
+      }
+      return this.change();
+    };
+
+    Route.unbind = function() {
+      if (this.history) {
+        return $(window).unbind('popstate', this.change);
+      } else {
+        return $(window).unbind('hashchange', this.change);
+      }
+    };
+
+    Route.navigate = function() {
+      var args, lastArg, options, path;
+      args = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+      options = {};
+      lastArg = args[args.length - 1];
+      if (typeof lastArg === 'object') {
+        options = args.pop();
+      } else if (typeof lastArg === 'boolean') {
+        options.trigger = args.pop();
+      }
+      options = $.extend({}, this.options, options);
+      path = args.join('/');
+      if (this.path === path) return;
+      this.path = path;
+      this.trigger('navigate', this.path);
+      if (options.trigger) this.matchRoute(this.path, options);
+      if (options.shim) return;
+      if (this.history) {
+        return history.pushState({}, document.title, this.path);
+      } else {
+        return window.location.hash = this.path;
+      }
+    };
+
+    Route.getPath = function() {
+      var path;
+      path = window.location.pathname;
+      if (path.substr(0, 1) !== '/') path = '/' + path;
+      return path;
+    };
+
+    Route.getHash = function() {
+      return window.location.hash;
+    };
+
+    Route.getFragment = function() {
+      return this.getHash().replace(hashStrip, '');
+    };
+
+    Route.getHost = function() {
+      return (document.location + '').replace(this.getPath() + this.getHash(), '');
+    };
+
+    Route.change = function() {
+      var path;
+      path = this.getFragment() !== '' ? this.getFragment() : this.getPath();
+      if (path === this.path) return;
+      this.path = path;
+      return this.matchRoute(this.path);
+    };
+
+    Route.matchRoute = function(path, options) {
+      var route, _i, _len, _ref2;
+      _ref2 = this.routes;
+      for (_i = 0, _len = _ref2.length; _i < _len; _i++) {
+        route = _ref2[_i];
+        if (route.match(path, options)) {
+          this.trigger('change', route, path);
+          return route;
+        }
+      }
+    };
+
+    function Route(path, callback) {
+      var match;
+      this.path = path;
+      this.callback = callback;
+      this.names = [];
+      if (typeof path === 'string') {
+        namedParam.lastIndex = 0;
+        while ((match = namedParam.exec(path)) !== null) {
+          this.names.push(match[1]);
+        }
+        path = path.replace(escapeRegExp, '\\$&').replace(namedParam, '([^\/]*)').replace(splatParam, '(.*?)');
+        this.route = new RegExp('^' + path + '$');
+      } else {
+        this.route = path;
+      }
+    }
+
+    Route.prototype.match = function(path, options) {
+      var i, match, param, params, _len;
+      if (options == null) options = {};
+      match = this.route.exec(path);
+      if (!match) return false;
+      options.match = match;
+      params = match.slice(1);
+      if (this.names.length) {
+        for (i = 0, _len = params.length; i < _len; i++) {
+          param = params[i];
+          options[this.names[i]] = param;
+        }
+      }
+      return this.callback.call(null, options) !== false;
+    };
+
+    return Route;
+
+  })(Spine.Module);
+
+  Spine.Route.change = Spine.Route.proxy(Spine.Route.change);
+
+  Spine.Controller.include({
+    route: function(path, callback) {
+      return Spine.Route.add(path, this.proxy(callback));
+    },
+    routes: function(routes) {
+      var key, value, _results;
+      _results = [];
+      for (key in routes) {
+        value = routes[key];
+        _results.push(this.route(key, value));
+      }
+      return _results;
+    },
+    navigate: function() {
+      return Spine.Route.navigate.apply(Spine.Route, arguments);
+    }
+  });
+
+  if (typeof module !== "undefined" && module !== null) {
+    module.exports = Spine.Route;
+  }
+
+}).call(this);
+;
+
+(function() {
+  var $;
+
+  $ = typeof jQuery !== "undefined" && jQuery !== null ? jQuery : require("jqueryify");
+
+  $.fn.item = function() {
+    var item;
+    item = $(this);
+    item = item.data("item") || (typeof item.tmplItem === "function" ? item.tmplItem().data : void 0);
+    if (item != null) if (typeof item.reload === "function") item.reload();
+    return item;
+  };
+
+  $.fn.forItem = function(item) {
+    return this.filter(function() {
+      var compare;
+      compare = $(this).item();
+      return (typeof item.eql === "function" ? item.eql(compare) : void 0) || item === compare;
+    });
+  };
+
+}).call(this);
+;
+

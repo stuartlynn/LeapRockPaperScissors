@@ -1,7 +1,20 @@
+<!DOCTYPE html>
 <html>
-	<head>
-	</head>
-	<body>
-		<h1> HERE</h1>
-	</body>
+<head>
+    <meta charset=utf-8>
+    <title>App</title>
+
+    <link rel="stylesheet" href="/stylesheets/app.css" type="text/css">
+    <script src="/javascripts/vendor/common.js"></script>
+    <script src="/javascripts/vendor/spine.js"></script>
+    <script src="/javascripts/app.js"></script>
+    <script>
+        var exports = this;
+        $(function(){
+            var App = require("application");
+            exports.app = new App({el: $("body")});
+        });
+    </script>
+</head>
+<body></body>
 </html>
