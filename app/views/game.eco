@@ -1,0 +1,35 @@
+<div class='countdown'><h1>Click to START FIGHT!</h1></div>
+
+<div class='player1 player'>
+	
+	<div class='upper'>
+
+		<div class='lifebar'>
+			<div class='lifebarInner'></div>
+		</div>
+		<h1>Player 1</h1>
+	</div>
+
+	<div class='move'>
+		<img src='images/paper.png'></img>
+	</div>
+</div>
+
+<div class='player2 player'>
+	<div class='upper'>
+		
+		<div class='lifebar'>
+			<div class='lifebarInner'></div>
+		</div>
+		<h1>Player 2</h1>
+	</div>
+	
+	<div class='move'>
+		<img src='images/rock.png'></img>
+	</div>
+
+</div>
+
+<div class='vs'>	
+	<h2>VS</h2>
+</div>
